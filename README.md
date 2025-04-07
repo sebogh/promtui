@@ -6,9 +6,13 @@ CLI for "tailing" a Prometheus metrics-endpoint (potentially useful for debuggin
 
 ## Install
 
+Install with `go`:
+
 ```sh
-go install https://github.com/sebogh/promtui@latest
+go install github.com/sebogh/promtui/cmd/promtui@latest
 ```
+
+or see [releases](https://github.com/sebogh/promtui/releases/latest)
 
 ## Usage
 
