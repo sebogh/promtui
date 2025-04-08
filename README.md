@@ -3,7 +3,7 @@
 CLI for "tailing" a Prometheus metrics-endpoint (potentially useful for
 debugging purposes).
 
-![screenshot](docs/screenshot.png)
+![screencast](docs/screencast.gif)
 
 ## Install
 
