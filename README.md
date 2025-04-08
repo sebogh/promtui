@@ -1,6 +1,7 @@
 # promtui
 
-CLI for "tailing" a Prometheus metrics-endpoint (potentially useful for debugging purposes).
+CLI for "tailing" a Prometheus metrics-endpoint (potentially useful for
+debugging purposes).
 
 ![screenshot](docs/screenshot.png)
 
@@ -12,16 +13,17 @@ Install with `go`:
 go install github.com/sebogh/promtui/cmd/promtui@latest
 ```
 
-or see [releases](https://github.com/sebogh/promtui/releases/latest)
+or see [releases](https://github.com/sebogh/promtui/releases/latest).
 
 ## Usage
 
 Run like: 
 
 ```sh
-./promtui 
+promtui 
 ``` 
 
-which will tail the metrics from the default endpoint: `http://localhost:9090/metrics`.
+which will tail the metrics from the default endpoint:
+`http://localhost:8080/healthz/metrics`.
 
-See `./promtui --help` for all available options.
+See `promtui --help` for all available options.
