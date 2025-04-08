@@ -1,13 +1,15 @@
 module github.com/sebogh/promtui
 
-go 1.24
+go 1.24.1
 
 require (
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/maruel/natural v1.1.1
 	github.com/prometheus/client_model v0.6.1
 	github.com/prometheus/common v0.63.0
+	google.golang.org/protobuf v1.36.5
 )
 
 require (
@@ -27,5 +29,4 @@ require (
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
-	google.golang.org/protobuf v1.36.5 // indirect
 )
