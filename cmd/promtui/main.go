@@ -26,6 +26,8 @@ var (
 	redStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
 	greenStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 	boldStyle  = lipgloss.NewStyle().Bold(true)
+
+	grayStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 )
 
 // tickMsg is a message returned from the ticker.
@@ -42,14 +44,15 @@ type sampledMsg struct {
 	error error
 }
 type model struct {
-	interval time.Duration
-	data     *internal.TimeSeries
-	search   string
-	ready    bool
-	viewport viewport.Model
-	endpoint string
-	ticker   *time.Ticker
-	stopped  bool
+	interval           time.Duration
+	data               *internal.TimeSeries
+	search             string
+	ready              bool
+	viewport           viewport.Model
+	endpoint           string
+	ticker             *time.Ticker
+	stopped            bool
+	historyViewEnabled bool
 }
 
 func main() {
@@ -128,6 +131,9 @@ func (m *model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "ctrl+r":
 			m.ticker.Stop()
 			cmds = append(cmds, sampleCmd(m.data))
+		case msg.String() == "ctrl+h":
+			m.historyViewEnabled = !m.historyViewEnabled
+			m.metricsView()
 		case msg.String() == "ctrl+p":
 			if m.stopped {
 				cmds = append(cmds, sampleCmd(m.data))
@@ -206,28 +212,31 @@ func (m *model) footerView() string {
 
 func (m *model) metricsView() {
 	dump, err := m.data.Dump(m.search)
+	maxWidthStyle := lipgloss.NewStyle().MaxWidth(m.viewport.Width)
 	if err != nil {
-		content := fmt.Sprintf("Error rendering metrics: %s", err.Error())
+		content := maxWidthStyle.Render(fmt.Sprintf("Error rendering metrics: %s", err.Error()))
 		m.viewport.SetContent(content)
 	}
 	sb := strings.Builder{}
 	for _, item := range dump {
-		renderItemSeries(&sb, item)
+		if len(item.Values) == 0 {
+			continue
+		}
+		sb.WriteString(renderItemSeries(item, m.historyViewEnabled, maxWidthStyle))
 	}
 	content := sb.String()
 	m.viewport.SetContent(content)
 }
 
-func renderItemSeries(sb *strings.Builder, is internal.ItemSeries) {
-	if len(is.Values) == 0 {
-		return
-	}
+func renderItemSeries(is internal.ItemSeries, historyView bool, maxWidthStyle lipgloss.Style) string {
+
 	cv := math.Round(is.Values[0]*100) / 100
 	nameValue := is.Name + " " + strconv.FormatFloat(cv, 'f', -1, 64)
 	if len(is.Values) < 2 {
-		sb.WriteString(nameValue + "\n")
-		return
+		return maxWidthStyle.Render(nameValue) + "\n"
 	}
+
+	sb := strings.Builder{}
 	pv := math.Round(is.Values[1]*100) / 100
 	if cv > pv {
 		sb.WriteString(boldStyle.Render(nameValue))
@@ -238,5 +247,8 @@ func renderItemSeries(sb *strings.Builder, is internal.ItemSeries) {
 	} else {
 		sb.WriteString(nameValue + "")
 	}
-	sb.WriteString("\n")
+	if historyView {
+		sb.WriteString(grayStyle.Render(" (" + strconv.FormatFloat(pv, 'f', -1, 64) + ")"))
+	}
+	return maxWidthStyle.Render(sb.String()) + "\n"
 }
