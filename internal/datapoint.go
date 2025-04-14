@@ -22,6 +22,8 @@ const (
 	kindHistogramBucket
 	kindHistogramSum
 	kindHistogramCount
+	kindSummarySum
+	kindSummaryCount
 )
 
 // item represents a single metric item (e.g. a specific bucket) with its
@@ -111,6 +113,21 @@ func flatten(mfs map[string]*prom.MetricFamily) dataPoint {
 					name:  name,
 					kind:  kindGauge,
 					value: m.GetGauge().GetValue(),
+				}
+
+			// Summary.
+			case prom.MetricType_SUMMARY:
+				name := flatName(mfName+"_sum", mLabels)
+				dp[name] = &item{
+					name:  name,
+					kind:  kindSummarySum,
+					value: m.GetSummary().GetSampleSum(),
+				}
+				name = flatName(mfName+"_count", mLabels)
+				dp[name] = &item{
+					name:  name,
+					kind:  kindSummaryCount,
+					value: float64(m.GetSummary().GetSampleCount()),
 				}
 			}
 		}
