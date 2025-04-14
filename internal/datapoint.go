@@ -37,17 +37,26 @@ type item struct {
 // newDataPoint parses the response returned from a Prometheus metrics endpoint
 // (text format) and represents it as a dataPoint.
 func newDataPoint(in io.Reader) (dataPoint, error) {
-	var parser expfmt.TextParser
-	mfs, err := parser.TextToMetricFamilies(in)
-	if err != nil {
-		return nil, err
+	format := expfmt.FmtText
+	parser := expfmt.NewDecoder(in, format)
+	var mfs []*prom.MetricFamily
+	for {
+		mf := &prom.MetricFamily{}
+		err := parser.Decode(mf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		mfs = append(mfs, mf)
 	}
 	dp := flatten(mfs)
 	return dp, nil
 }
 
 // flatten takes a map of Prometheus families and flattens them into an item-map.
-func flatten(mfs map[string]*prom.MetricFamily) dataPoint {
+func flatten(mfs []*prom.MetricFamily) dataPoint {
 	dp := make(map[string]*item)
 
 	// For each item family ...

@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"github.com/maruel/natural"
+	"github.com/prometheus/common/expfmt"
 	"io"
 	"net/http"
 	"sort"
@@ -47,7 +48,13 @@ func (h *TimeSeries) Sample() (bool, error) {
 	}
 	defer h.mux.Unlock()
 
-	resp, err := http.Get(h.endpoint)
+	req, err := http.NewRequest(http.MethodGet, h.endpoint, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Accept", string(expfmt.FmtText))
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, err
 	}
