@@ -30,36 +30,32 @@ var (
 	grayStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 )
 
-// tickMsg is a message returned from the ticker.
 type tickMsg time.Time
 
-// sampledMsg is a message returned from sampleCmd.
 type sampledMsg struct {
-
-	// fetched indicates if new metrics were fetched. If false, no need to update the
-	// viewport.
 	fetched bool
-
-	// error is the error returned from the sample command. If nil, no error occurred.
-	error error
+	error   error
 }
+
 type model struct {
-	interval           time.Duration
-	data               *internal.TimeSeries
-	search             string
-	ready              bool
-	viewport           viewport.Model
-	endpoint           string
-	ticker             *time.Ticker
-	stopped            bool
-	historyViewEnabled bool
+	interval    time.Duration
+	data        *internal.Store
+	search      string
+	ready       bool
+	viewport    viewport.Model
+	endpoint    string
+	ticker      *time.Ticker
+	stopped     bool
+	showHistory bool
+	showDerived bool
 }
 
 func main() {
 	endpoint := flag.String("endpoint", "http://localhost:8080/healthz/metrics", "metrics endpoint")
 	interval := flag.Duration("interval", 5*time.Second, "refresh interval (e.g., 10s, 1m)")
-	bufferSize := flag.Int("buffer-size", 10, "size of the ring buffer")
 	search := flag.String("search", "", "metrics search filter")
+	disableHistoryView := flag.Bool("disable-history", false, "disable history")
+	disableDerivedView := flag.Bool("disable-derived", false, "disable derived metrics")
 	help := flag.Bool("help", false, "show help")
 
 	flag.Parse()
@@ -68,18 +64,22 @@ func main() {
 		os.Exit(0)
 	}
 
-	ts := internal.NewTimeSeries(*bufferSize, *endpoint)
+	// For now, we only need 3 data-points to show the delta between the last two
+	// values or last two rates.
+	ts := internal.NewStore(3, *endpoint)
 	if _, err := ts.Sample(); err != nil {
 		fmt.Println("Error fetching initial metrics:", err)
 		os.Exit(1)
 	}
 
 	m := &model{
-		search:   *search,
-		interval: *interval,
-		data:     ts,
-		endpoint: strings.TrimSpace(*endpoint),
-		ticker:   time.NewTicker(*interval),
+		search:      *search,
+		interval:    *interval,
+		data:        ts,
+		endpoint:    strings.TrimSpace(*endpoint),
+		ticker:      time.NewTicker(*interval),
+		showHistory: !*disableHistoryView,
+		showDerived: !*disableDerivedView,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -131,9 +131,6 @@ func (m *model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "ctrl+r":
 			m.ticker.Stop()
 			cmds = append(cmds, sampleCmd(m.data))
-		case msg.String() == "ctrl+h":
-			m.historyViewEnabled = !m.historyViewEnabled
-			m.metricsView()
 		case msg.String() == "ctrl+p":
 			if m.stopped {
 				cmds = append(cmds, sampleCmd(m.data))
@@ -148,7 +145,7 @@ func (m *model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.metricsView()
 		case msg.Type == tea.KeyRunes:
 			for _, r := range msg.Runes {
-				if unicode.IsLetter(r) {
+				if unicode.IsLetter(r) || unicode.IsDigit(r) || msg.String() == "_" || msg.String() == "-" {
 					m.search += string(r)
 				}
 			}
@@ -175,7 +172,7 @@ func sleepCmd(t *time.Ticker) tea.Cmd {
 	}
 }
 
-func sampleCmd(ts *internal.TimeSeries) tea.Cmd {
+func sampleCmd(ts *internal.Store) tea.Cmd {
 	return func() tea.Msg {
 		fetched, err := ts.Sample()
 		if err != nil {
@@ -218,37 +215,119 @@ func (m *model) metricsView() {
 		m.viewport.SetContent(content)
 	}
 	sb := strings.Builder{}
-	for _, item := range dump {
-		if len(item.Values) == 0 {
-			continue
+	for _, series := range dump {
+		derived := m.derive(series)
+		for _, d := range derived {
+			if len(d) == 0 {
+				continue
+			}
+			sb.WriteString(renderSeries(d, m.showHistory, m.showDerived, maxWidthStyle))
 		}
-		sb.WriteString(renderItemSeries(item, m.historyViewEnabled, maxWidthStyle))
 	}
 	content := sb.String()
 	m.viewport.SetContent(content)
 }
 
-func renderItemSeries(is internal.ItemSeries, historyView bool, maxWidthStyle lipgloss.Style) string {
-
-	cv := math.Round(is.Values[0]*100) / 100
-	nameValue := is.Name + " " + strconv.FormatFloat(cv, 'f', -1, 64)
-	if len(is.Values) < 2 {
-		return maxWidthStyle.Render(nameValue) + "\n"
-	}
-
-	sb := strings.Builder{}
-	pv := math.Round(is.Values[1]*100) / 100
-	if cv > pv {
-		sb.WriteString(boldStyle.Render(nameValue))
-		sb.WriteString(redStyle.Render(" ⬆"))
-	} else if cv < pv {
-		sb.WriteString(boldStyle.Render(nameValue))
-		sb.WriteString(greenStyle.Render(" ⬇"))
+func computeRate(c, p internal.Observation) internal.Observation {
+	dur := c.Time.Sub(p.Time)
+	delta := c.Value - p.Value
+	var rate float64
+	if dur < time.Second {
+		scale := float64(time.Second.Nanoseconds() / dur.Nanoseconds())
+		rate = delta * scale
 	} else {
-		sb.WriteString(nameValue + "")
+		rate = delta / dur.Seconds()
 	}
-	if historyView && cv != pv {
-		sb.WriteString(grayStyle.Render(" (" + strconv.FormatFloat(pv, 'f', -1, 64) + ")"))
+	return internal.NewObservation(rateName(c.Name), internal.ObservationCounterRate, c.Time, rate)
+}
+
+func (m *model) derive(ots []internal.Observation) [][]internal.Observation {
+	var derived [][]internal.Observation
+	derived = append(derived, ots)
+	o := ots[0]
+
+	// Derive a rate series from counter like items.
+	if (o.Kind == internal.ObservationCounter || o.Kind == internal.ObservationHistogramCount) && len(ots) > 1 {
+		rs := make([]internal.Observation, 0, len(ots))
+		for i := 0; i < len(ots)-1; i++ {
+			rs = append(rs, computeRate(ots[i], ots[i+1]))
+		}
+		derived = append(derived, rs)
 	}
-	return maxWidthStyle.Render(sb.String()) + "\n"
+	return derived
+}
+
+func rateName(name string) string {
+	split := strings.Split(name, " ")
+	name = split[0] + "_per_second_rate"
+	if len(split) > 1 {
+		name += " " + strings.Join(split[1:], " ")
+	}
+	return name
+}
+
+func round(f float64) float64 {
+	return math.Round(f*100) / 100
+}
+
+func format(f float64) string {
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func isDerived(kind internal.ObservationKind) bool {
+	return kind == internal.ObservationCounterRate || kind == internal.ObservationHistogramAvg
+}
+
+// renderSeries renders a single item series to a single line string.
+func renderSeries(obs []internal.Observation, showHistory, showDerived bool, maxWidthStyle lipgloss.Style) string {
+
+	o := obs[0]
+	derived := isDerived(o.Kind)
+
+	// If we have no labels, return the name.
+	if !showDerived && derived {
+		return ""
+	}
+
+	// Add a prefix for showDerived metrics.
+	s := " "
+	if derived {
+		s = "+"
+	}
+
+	// If we have only one value, return name and value.
+	cv := round(obs[0].Value)
+	s += o.Name + " " + format(cv)
+	if len(obs) < 2 {
+		return maxWidthStyle.Render(s) + "\n"
+	}
+
+	// Get the previous value.
+	pv := round(obs[1].Value)
+
+	// If unchanged, return.
+	if cv == pv {
+		return maxWidthStyle.Render(s) + "\n"
+	}
+
+	// Changed values will be bold.
+	s = boldStyle.Render(s)
+
+	// add colored arrows to indicate the change.
+	if cv > pv {
+		s += redStyle.Render(" ⬆")
+	} else {
+		s += greenStyle.Render(" ⬇")
+	}
+
+	// If showHistory view is enabled, append the delta to the previous value.
+	if showHistory {
+		delta := round(math.Abs(cv - pv))
+		if cv > pv {
+			s += grayStyle.Render(" (+" + format(delta) + ")")
+		} else {
+			s += grayStyle.Render(" (-" + format(delta) + ")")
+		}
+	}
+	return maxWidthStyle.Render(s) + "\n"
 }

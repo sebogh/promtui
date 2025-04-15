@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-type RingBuffer[T any] struct {
+type ringBuffer[T any] struct {
 	buffer []T
 	size   int
 	mu     sync.Mutex
@@ -14,16 +14,16 @@ type RingBuffer[T any] struct {
 	count  int
 }
 
-// NewRingBuffer creates a new ring buffer with a fixed size.
-func NewRingBuffer[T any](size int) *RingBuffer[T] {
-	return &RingBuffer[T]{
+// newRingBuffer creates a new ring buffer with a fixed size.
+func newRingBuffer[T any](size int) *ringBuffer[T] {
+	return &ringBuffer[T]{
 		buffer: make([]T, size),
 		size:   size,
 	}
 }
 
-// Add inserts a new element into the buffer, overwriting the oldest if full.
-func (rb *RingBuffer[T]) Add(value T) {
+// add inserts a new element into the buffer, overwriting the oldest if full.
+func (rb *ringBuffer[T]) add(value T) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
@@ -36,7 +36,7 @@ func (rb *RingBuffer[T]) Add(value T) {
 }
 
 // Get returns the contents of the buffer in FIFO order.
-func (rb *RingBuffer[T]) Get() []T {
+func (rb *ringBuffer[T]) get() []T {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
@@ -48,22 +48,4 @@ func (rb *RingBuffer[T]) Get() []T {
 	}
 
 	return result
-}
-
-// GetLast returns last element from the buffer or zero value if empty.
-func (rb *RingBuffer[T]) GetLast() T {
-	all := rb.Get()
-	if len(all) == 0 {
-		var zero T
-		return zero
-	}
-	result := all[len(all)-1]
-	return result
-}
-
-// Len returns the current number of elements in the buffer.
-func (rb *RingBuffer[T]) Len() int {
-	rb.mu.Lock()
-	defer rb.mu.Unlock()
-	return rb.count
 }

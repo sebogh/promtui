@@ -8,44 +8,44 @@ import (
 )
 
 func TestRingBuffer_AddAndGet(t *testing.T) {
-	ringBuffer := NewRingBuffer[int](5)
-	ringBuffer.Add(1)
-	ringBuffer.Add(2)
-	ringBuffer.Add(3)
+	ringBuffer := newRingBuffer[int](5)
+	ringBuffer.add(1)
+	ringBuffer.add(2)
+	ringBuffer.add(3)
 
 	expected := []int{1, 2, 3}
-	actual := ringBuffer.Get()
+	actual := ringBuffer.get()
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("Expected %v, but got %v", expected, actual)
 	}
 
-	ringBuffer.Add(4)
-	ringBuffer.Add(5)
-	ringBuffer.Add(6)
+	ringBuffer.add(4)
+	ringBuffer.add(5)
+	ringBuffer.add(6)
 
 	expected = []int{2, 3, 4, 5, 6}
-	actual = ringBuffer.Get()
+	actual = ringBuffer.get()
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("Expected %v, but got %v", expected, actual)
 	}
 
-	ringBuffer.Add(7)
-	ringBuffer.Add(8)
+	ringBuffer.add(7)
+	ringBuffer.add(8)
 
 	expected = []int{4, 5, 6, 7, 8}
-	actual = ringBuffer.Get()
+	actual = ringBuffer.get()
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("Expected %v, but got %v", expected, actual)
 	}
 }
 
 func TestRingBufferConcurrent(t *testing.T) {
-	ringBuffer := NewRingBuffer[int](3)
+	ringBuffer := newRingBuffer[int](3)
 	var wg sync.WaitGroup
 
 	addValues := func(values []int) {
 		for _, value := range values {
-			ringBuffer.Add(value)
+			ringBuffer.add(value)
 			// Simulate delay
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -53,7 +53,7 @@ func TestRingBufferConcurrent(t *testing.T) {
 	}
 
 	readValues := func() {
-		prices := ringBuffer.Get()
+		prices := ringBuffer.get()
 		if len(prices) > 0 && len(prices) != ringBuffer.size {
 			t.Errorf("Buffer length inconsistency: expected size %d but got %d", ringBuffer.size, len(prices))
 		}
@@ -71,11 +71,11 @@ func TestRingBufferConcurrent(t *testing.T) {
 
 	wg.Wait()
 
-	finalValues := ringBuffer.Get()
+	finalValues := ringBuffer.get()
 
 	for _, value := range finalValues {
 		if value < 1 || value > 8 {
-			t.Errorf("Unexpected value in buffer: %d", value)
+			t.Errorf("Unexpected Value in buffer: %d", value)
 		}
 	}
 
