@@ -6,18 +6,22 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	prom "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"google.golang.org/protobuf/proto"
 )
 
-type dataPoint map[string]*item
+type dataPoint struct {
+	ts    time.Time
+	items map[string]*item
+}
 
-type kind int
+type itemKind int
 
 const (
-	kindCounter kind = iota
+	kindCounter itemKind = iota
 	kindGauge
 	kindHistogramBucket
 	kindHistogramSum
@@ -30,19 +34,18 @@ const (
 // corresponding value.
 type item struct {
 	name  string
-	kind  kind
+	kind  itemKind
 	value float64
 }
 
 // newDataPoint parses the response returned from a Prometheus metrics endpoint
 // (text format) and represents it as a dataPoint.
-func newDataPoint(in io.Reader) (dataPoint, error) {
-	format := expfmt.FmtText
-	parser := expfmt.NewDecoder(in, format)
+func newDataPoint(in io.Reader, ts time.Time) (*dataPoint, error) {
+	dec := expfmt.NewDecoder(in, expfmt.FmtText)
 	var mfs []*prom.MetricFamily
 	for {
 		mf := &prom.MetricFamily{}
-		err := parser.Decode(mf)
+		err := dec.Decode(mf)
 		if err == io.EOF {
 			break
 		}
@@ -51,13 +54,17 @@ func newDataPoint(in io.Reader) (dataPoint, error) {
 		}
 		mfs = append(mfs, mf)
 	}
-	dp := flatten(mfs)
+	items := flatten(mfs)
+	dp := &dataPoint{
+		ts:    ts,
+		items: items,
+	}
 	return dp, nil
 }
 
 // flatten takes a map of Prometheus families and flattens them into an item-map.
-func flatten(mfs []*prom.MetricFamily) dataPoint {
-	dp := make(map[string]*item)
+func flatten(mfs []*prom.MetricFamily) map[string]*item {
+	items := make(map[string]*item)
 
 	// For each item family ...
 	for _, mf := range mfs {
@@ -83,14 +90,14 @@ func flatten(mfs []*prom.MetricFamily) dataPoint {
 					if value <= 0 {
 						value = float64(b.GetCumulativeCount())
 					}
-					dp[name] = &item{
+					items[name] = &item{
 						name:  name,
 						kind:  kindHistogramBucket,
 						value: value,
 					}
 				}
 				name := flatName(mfName+"_sum", mLabels)
-				dp[name] = &item{
+				items[name] = &item{
 					name:  name,
 					kind:  kindHistogramSum,
 					value: m.GetHistogram().GetSampleSum(),
@@ -100,7 +107,7 @@ func flatten(mfs []*prom.MetricFamily) dataPoint {
 				if value <= 0 {
 					value = float64(m.GetHistogram().GetSampleCount())
 				}
-				dp[name] = &item{
+				items[name] = &item{
 					name:  name,
 					kind:  kindHistogramCount,
 					value: value,
@@ -109,7 +116,7 @@ func flatten(mfs []*prom.MetricFamily) dataPoint {
 			// Counter.
 			case prom.MetricType_COUNTER:
 				name := flatName(mfName, mLabels)
-				dp[name] = &item{
+				items[name] = &item{
 					name:  name,
 					kind:  kindCounter,
 					value: m.GetCounter().GetValue(),
@@ -118,7 +125,7 @@ func flatten(mfs []*prom.MetricFamily) dataPoint {
 			// Gauge.
 			case prom.MetricType_GAUGE:
 				name := flatName(mfName, mLabels)
-				dp[name] = &item{
+				items[name] = &item{
 					name:  name,
 					kind:  kindGauge,
 					value: m.GetGauge().GetValue(),
@@ -127,13 +134,13 @@ func flatten(mfs []*prom.MetricFamily) dataPoint {
 			// Summary.
 			case prom.MetricType_SUMMARY:
 				name := flatName(mfName+"_sum", mLabels)
-				dp[name] = &item{
+				items[name] = &item{
 					name:  name,
 					kind:  kindSummarySum,
 					value: m.GetSummary().GetSampleSum(),
 				}
 				name = flatName(mfName+"_count", mLabels)
-				dp[name] = &item{
+				items[name] = &item{
 					name:  name,
 					kind:  kindSummaryCount,
 					value: float64(m.GetSummary().GetSampleCount()),
@@ -141,7 +148,7 @@ func flatten(mfs []*prom.MetricFamily) dataPoint {
 			}
 		}
 	}
-	return dp
+	return items
 }
 
 // flatName creates a flat name for the item and its labels.

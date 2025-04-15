@@ -9,13 +9,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // TimeSeries is a structure that holds a ring buffer of metrics and an endpoint
 // to fetch them from.
 type TimeSeries struct {
 	endpoint string
-	buf      *RingBuffer[dataPoint]
+	buf      *RingBuffer[*dataPoint]
 	mux      sync.RWMutex
 }
 
@@ -30,7 +31,7 @@ type ItemSeries struct {
 
 // NewTimeSeries creates a new TimeSeries with the given size and endpoint.
 func NewTimeSeries(size int, endpoint string) *TimeSeries {
-	buf := NewRingBuffer[dataPoint](size)
+	buf := NewRingBuffer[*dataPoint](size)
 	return &TimeSeries{
 		endpoint: endpoint,
 		buf:      buf,
@@ -68,7 +69,8 @@ func (h *TimeSeries) Sample() (bool, error) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return false, fmt.Errorf("received status %d from metrics endpoint", resp.StatusCode)
 	}
-	dp, err := newDataPoint(resp.Body)
+	ts := dateFromResponse(resp)
+	dp, err := newDataPoint(resp.Body, ts)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse metrics: %w", err)
 	}
@@ -105,9 +107,10 @@ func (h *TimeSeries) Dump(filter string) ([]ItemSeries, error) {
 
 // sortAndFilter sorts the keys of a dataPoint and filters them based on the
 // provided filter string. If the filter string is empty, all keys are included.
-func sortAndFilter(m dataPoint, f string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
+func sortAndFilter(dp *dataPoint, f string) []string {
+	items := dp.items
+	keys := make([]string, 0, len(items))
+	for k := range items {
 		if f == "" || strings.Contains(strings.ToLower(k), strings.ToLower(f)) {
 			keys = append(keys, k)
 		}
@@ -116,17 +119,36 @@ func sortAndFilter(m dataPoint, f string) []string {
 	return keys
 }
 
-// itemValues returns the values of a specific item across from youngest to
-// oldest. If the latest value is not found, it returns an empty slice. If any of
-// the previous values are not found, it returns the values up to that point.
-func itemValues(dps []dataPoint, name string) []float64 {
+// itemValues returns the values of a specific item across all data points from
+// youngest to oldest. If the latest value is not found, it returns an empty
+// slice. If any of the previous values are not found, it returns the values up
+// to that point.
+func itemValues(dps []*dataPoint, name string) []float64 {
 	values := make([]float64, 0, len(dps))
 	for j := len(dps) - 1; j >= 0; j-- {
-		i, ok := dps[j][name]
+		i, ok := dps[j].items[name]
 		if !ok {
 			return values
 		}
 		values = append(values, i.value)
 	}
 	return values
+}
+
+// dateFromResponse parses the Date header from the response and returns the
+// corresponding time. If the Date header is not present or cannot be parsed,
+// it returns the current time.
+func dateFromResponse(resp *http.Response) time.Time {
+	dateStr := resp.Header.Get("Date")
+	if dateStr == "" {
+		return time.Now()
+	}
+	t, err := time.Parse(time.RFC1123Z, dateStr)
+	if err != nil {
+		t, err = time.Parse(time.RFC1123, dateStr)
+		if err != nil {
+			return time.Now()
+		}
+	}
+	return t
 }
