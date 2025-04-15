@@ -247,7 +247,7 @@ func renderItemSeries(is internal.ItemSeries, historyView bool, maxWidthStyle li
 	} else {
 		sb.WriteString(nameValue + "")
 	}
-	if historyView {
+	if historyView && cv != pv {
 		sb.WriteString(grayStyle.Render(" (" + strconv.FormatFloat(pv, 'f', -1, 64) + ")"))
 	}
 	return maxWidthStyle.Render(sb.String()) + "\n"
