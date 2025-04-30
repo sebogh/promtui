@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -57,10 +58,27 @@ func main() {
 	disableHistoryView := flag.Bool("disable-history", false, "disable history")
 	disableDerivedView := flag.Bool("disable-derived", false, "disable derived metrics")
 	help := flag.Bool("help", false, "show help")
+	version := flag.Bool("version", false, "show version")
 
 	flag.Parse()
 	if *help {
 		flag.Usage()
+		os.Exit(0)
+	}
+	if *version {
+		bi, ok := debug.ReadBuildInfo()
+		if !ok {
+			fmt.Println("Error reading Build Info")
+			os.Exit(1)
+		}
+		var revision string
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" {
+				revision = s.Value
+				break
+			}
+		}
+		fmt.Printf("version: %s, revision: %s\n", bi.Main.Version, revision)
 		os.Exit(0)
 	}
 
