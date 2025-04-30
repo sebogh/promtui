@@ -52,13 +52,13 @@ type model struct {
 }
 
 func main() {
+	help := flag.Bool("help", false, "show help")
+	version := flag.Bool("version", false, "show version")
 	endpoint := flag.String("endpoint", "http://localhost:8080/healthz/metrics", "metrics endpoint")
 	interval := flag.Duration("interval", 5*time.Second, "refresh interval (e.g., 10s, 1m)")
 	search := flag.String("search", "", "metrics search filter")
 	disableHistoryView := flag.Bool("disable-history", false, "disable history")
 	disableDerivedView := flag.Bool("disable-derived", false, "disable derived metrics")
-	help := flag.Bool("help", false, "show help")
-	version := flag.Bool("version", false, "show version")
 
 	flag.Parse()
 	if *help {
